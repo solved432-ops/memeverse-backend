@@ -1,41 +1,52 @@
 import OpenAI from "openai";
 
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // المفتاح السري هنا فقط
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Add CORS so the Figma/website frontend can call this API
+const allowedOrigins = [
+  "https://memeverseai.tech",
+  "https://www.memeverseai.tech",
+  "http://localhost:3000", // keep for local testing
+  // add any other preview domain you use here
+];
+
 export default async function handler(req, res) {
-  // السماح فقط بطلبات POST
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Handle preflight
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   try {
     const { messages } = req.body;
 
-    if (!messages) {
-      return res.status(400).json({ error: "Missing 'messages' in body" });
-    }
-
-    // استدعاء OpenAI Responses API
     const response = await client.responses.create({
-      model: "gpt-5.1-chat-latest", // أو أي موديل آخر تريده
+      model: "gpt-5.1-mini",
       input: messages,
-      // تستطيع إضافة tools هنا مثل web_search إذا كنت تستخدمها
     });
 
-    // استخراج النص من الـ response
-    const output = response.output?.[0]?.content?.[0]?.text || "";
+    const reply =
+      response.output?.[0]?.content?.[0]?.text ??
+      "Sorry, I couldn’t generate a reply.";
 
-    return res.status(200).json({
-      ok: true,
-      text: output,
-    });
+    res.status(200).json({ reply });
   } catch (err) {
-    console.error("OpenAI error:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "OpenAI request failed",
-    });
+    console.error("Verse AI backend error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 }
