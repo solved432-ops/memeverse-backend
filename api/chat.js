@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     const { messages } = req.body;
 
     const response = await client.responses.create({
-      model: "gpt-5.1-mini",
+      model: "gpt-5.1-chat-latest",
       input: messages,
     });
 
