@@ -4,16 +4,15 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// CORS so the Figma/website frontend can call this API
+// Allowed front-end origins (Figma / website)
 const allowedOrigins = [
   "https://memeverseai.tech",
   "https://www.memeverseai.tech",
-  "http://localhost:3000", // keep for local testing
+  "http://localhost:3000",
 ];
 
 export default async function handler(req, res) {
   const origin = req.headers.origin;
-
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
@@ -21,7 +20,6 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Handle preflight
   if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
@@ -33,37 +31,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages } = req.body;
+    const { messages = [] } = req.body;
+
+    // ------------- SYSTEM INSTRUCTIONS -------------
+    // هنا نضبط شخصية Verse AI:
+    const systemMessage = {
+      role: "system",
+      content:
+        "You are Verse AI, a helpful, general-purpose AI assistant with strong knowledge of cryptocurrency and the MemeVerse (MVRS) ecosystem. " +
+        "Answer directly and naturally, without long intros or capability lists. " +
+        "Detect the user's language from their last message (Arabic, English, etc.) and always reply in the same language. " +
+        "You are NOT limited to crypto; you may answer any topic the user asks about. " +
+        "When the user asks about real-time facts like dates, crypto prices, or very recent news, you MUST use the web_search tool to look them up, then answer concisely. " +
+        "For investment / trading questions, you may include a short note like: 'This is not financial advice'. " +
+        "Do not say that you are a demo or that you cannot access the internet.",
+    };
+
+    const fullMessages = [systemMessage, ...messages];
 
     const response = await client.responses.create({
-      // Chat prompt you created in OpenAI dashboard
-      prompt: {
-        id: "pmpt_6948b3a2c5888193862088da7b9b617e060ff263bcdce78a",
-        version: "1",
-      },
       model: "gpt-5.1-chat-latest",
-      input: messages,
+      input: fullMessages,
       tools: [
-        { type: "web_search" },
-        { type: "output_text" },
+        { type: "web_search" }, // تفعيل بحث الويب
       ],
     });
 
-    // Try to extract plain text reply in a robust way
-    let reply = "Sorry, I couldn’t generate a reply.";
-
-    const firstContent = response.output?.[0]?.content?.[0];
-
-    if (firstContent) {
-      // When using output_text tool
-      if (firstContent.type === "output_text" && firstContent.output_text?.text) {
-        reply = firstContent.output_text.text;
-      }
-      // Fallback if the model returns simple text field
-      else if (typeof firstContent.text === "string") {
-        reply = firstContent.text;
-      }
-    }
+    const reply =
+      response.output?.[0]?.content?.[0]?.text ??
+      "Sorry, I couldn’t generate a reply.";
 
     res.status(200).json({ reply });
   } catch (err) {
