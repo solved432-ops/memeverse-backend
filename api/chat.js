@@ -8,7 +8,7 @@ const client = new OpenAI({
 const allowedOrigins = [
   "https://memeverseai.tech",
   "https://www.memeverseai.tech",
-  "http://localhost:3000",
+  "http://localhost:3000", // for local testing
 ];
 
 export default async function handler(req, res) {
@@ -20,6 +20,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+  // Preflight for CORS
   if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
@@ -31,29 +32,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages = [] } = req.body;
-
-    // ------------- SYSTEM INSTRUCTIONS -------------
-    // هنا نضبط شخصية Verse AI:
-    const systemMessage = {
-      role: "system",
-      content:
-        "You are Verse AI, a helpful, general-purpose AI assistant with strong knowledge of cryptocurrency and the MemeVerse (MVRS) ecosystem. " +
-        "Answer directly and naturally, without long intros or capability lists. " +
-        "Detect the user's language from their last message (Arabic, English, etc.) and always reply in the same language. " +
-        "You are NOT limited to crypto; you may answer any topic the user asks about. " +
-        "When the user asks about real-time facts like dates, crypto prices, or very recent news, you MUST use the web_search tool to look them up, then answer concisely. " +
-        "For investment / trading questions, you may include a short note like: 'This is not financial advice'. " +
-        "Do not say that you are a demo or that you cannot access the internet.",
-    };
-
-    const fullMessages = [systemMessage, ...messages];
+    const { messages } = req.body;
 
     const response = await client.responses.create({
       model: "gpt-5.1-chat-latest",
-      input: fullMessages,
+      input: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "text",
+              text: `
+You are Verse AI, an AI assistant created by MemeVerse for the MemeVerse AI app.
+
+- Answer the user's question directly, in a natural chat style.
+- Do NOT introduce yourself every time unless the user asks.
+- Always reply in the **same language** the user is using.
+- You are allowed to answer questions that are NOT about crypto (dates, general info, etc.).
+- If the user asks for today's date, respond with the current calendar date.
+- For cryptocurrency questions, you may use web_search when you need recent data (prices, news, on-chain events).
+- You are NOT a financial advisor. When giving opinions or talking about investments, you may add a short note like "This is not financial advice." but keep it brief.
+- Avoid long fixed disclaimers or templated marketing text. Just be clear, helpful and concise.
+            `.trim(),
+            },
+          ],
+        },
+        ...messages,
+      ],
       tools: [
-        { type: "web_search" }, // تفعيل بحث الويب
+        { type: "web_search" }
       ],
     });
 
