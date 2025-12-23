@@ -12,7 +12,8 @@ const allowedOrigins = [
 ];
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin || "";
+
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
@@ -34,36 +35,21 @@ export default async function handler(req, res) {
   try {
     const { messages } = req.body;
 
-    const response = await client.responses.create({
-      model: "gpt-5.1-chat-latest",
-      input: [
-        {
-          role: "system",
-          content: [
-            {
-              type: "text",
-              text: `
-You are Verse AI, an AI assistant created by MemeVerse for the MemeVerse AI app.
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages must be an array" });
+    }
 
-- Answer the user's question directly, in a natural chat style.
-- Do NOT introduce yourself every time unless the user asks.
-- Always reply in the **same language** the user is using.
-- You are allowed to answer questions that are NOT about crypto (dates, general info, etc.).
-- If the user asks for today's date, respond with the current calendar date.
-- For cryptocurrency questions, you may use web_search when you need recent data (prices, news, on-chain events).
-- You are NOT a financial advisor. When giving opinions or talking about investments, you may add a short note like "This is not financial advice." but keep it brief.
-- Avoid long fixed disclaimers or templated marketing text. Just be clear, helpful and concise.
-            `.trim(),
-            },
-          ],
-        },
-        ...messages,
-      ],
-      tools: [
-        { type: "web_search" }
-      ],
+    // 🔹 هنا نستخدم الـ Chat Prompt من داشبورد OpenAI فقط
+    const response = await client.responses.create({
+      prompt: {
+        id: "pmpt_6948b3a2c5888193862088da7b9b617e060ff263bcdce78a",
+        version: "1",
+      },
+      // نرسل المحادثة كما هي للبرومبت
+      input: messages,
     });
 
+    // استخراج النص من Responses API
     const reply =
       response.output?.[0]?.content?.[0]?.text ??
       "Sorry, I couldn’t generate a reply.";
