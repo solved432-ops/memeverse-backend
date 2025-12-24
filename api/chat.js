@@ -5,43 +5,42 @@ const client = new OpenAI({
 });
 
 export default async function handler(req, res) {
-  // ===== CORS =====
-  // هذا بالضبط ما يطلبه منك Backend Status Checker
+  // CORS – افتح كل الأصول مؤقتًا للتجربة
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Preflight (طلبات OPTIONS)
+  // Preflight
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    res.status(200).end();
+    return;
   }
 
-  // السماح فقط بـ POST
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   try {
     const { messages } = req.body;
 
-    // استدعاء OpenAI Responses API مع Prompt ID الخاص بك
+    // 👇 استخدام Chat Prompt من داشبورد OpenAI
     const response = await client.responses.create({
-      model: "gpt-5.1-chat-latest",
       prompt: {
         id: "pmpt_6948b3a2c5888193862088da7b9b617e060ff263bcdce78a",
         version: "1",
       },
-      // نرسل محادثة الفرونت كما هي
-      input: messages,
+      input: messages, // الرسائل القادمة من Figma كما هي
     });
 
+    // 👈 Responses API تعطيك النص النهائي في output_text
     const reply =
-      response.output?.[0]?.content?.[0]?.text ??
-      "Sorry, I couldn’t generate a reply.";
+      response.output_text ||
+      "Sorry, backend did not return any text.";
 
-    return res.status(200).json({ reply });
+    res.status(200).json({ reply });
   } catch (err) {
     console.error("Verse AI backend error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 }
