@@ -1,94 +1,67 @@
 // api/chat.js
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
-// Initialize OpenAI client
-const openai = new OpenAI({
+const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// 👇 هنا الـ Prompt ID تبعك
+const PROMPT_ID = "pmpt_694b5921afa48194a3afd294ebf57e21005f4481712d1d3a";
 
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
+export default async function handler(req, res) {
+  // CORS يسمح للواجهة (Figma / الموقع) تتصل بالباكند
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  // Preflight
+  if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  // فقط POST مسموح
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const { messages } = req.body;
+    const body = req.body || {};
+    const { messages } = body;
 
-    // Validate input
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({
-        error: 'Invalid request: messages array is required'
-      });
+    // لازم يكون في messages من الواجهة
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "messages array is required in request body" });
     }
 
-    // Validate message format
-    for (const msg of messages) {
-      if (!msg.role || !msg.content) {
-        return res.status(400).json({
-          error: 'Invalid message format: each message needs role and content'
-        });
-      }
-    }
-
-    console.log('📨 Received request with', messages.length, 'messages');
-    console.log('Last message:', messages[messages.length - 1]);
-
-    // Call OpenAI API
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-5.1-chat-latest',
-      messages: messages,
-      temperature: 0.7,
-      max_tokens: 1000,
+    // استدعاء OpenAI Responses مع الـ Prompt ID
+    const response = await client.responses.create({
+      prompt: {
+        id: PROMPT_ID,
+        version: "1",
+      },
+      input: messages,
     });
 
-    const reply = completion.choices[0]?.message?.content;
+    // استخراج النص من الـ response
+    const replyText =
+      response.output?.[0]?.content?.[0]?.text ??
+      response.output_text ??
+      null;
 
-    if (!reply) {
-      throw new Error('No reply from OpenAI');
+    if (!replyText) {
+      throw new Error("No text output returned from OpenAI Responses API");
     }
 
-    console.log('✅ Successfully generated reply');
-
-    // Return response in the format frontend expects
-    return res.status(200).json({ reply });
-
+    // نفس الشكل اللي فيجما متوقعه
+    return res.status(200).json({ reply: replyText });
   } catch (error) {
-    console.error('❌ Error:', error);
-
-    // Handle specific OpenAI errors
-    if (error.code === 'insufficient_quota') {
-      return res.status(429).json({
-        error: 'OpenAI API quota exceeded. Please check your billing.'
-      });
-    }
-
-    if (error.code === 'invalid_api_key') {
-      return res.status(401).json({
-        error: 'Invalid OpenAI API key'
-      });
-    }
-
-    if (error.status === 429) {
-      return res.status(429).json({
-        error: 'Rate limit exceeded. Please try again later.'
-      });
-    }
-
-    // Generic error
+    console.error("Verse AI backend error:", error);
+    // مؤقتًا بنرجّع التفاصيل عشان نعرف الخطأ لو استمر
     return res.status(500).json({
-      error: 'Internal server error',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: "Internal server error",
+      details: String(error?.message || error),
     });
   }
 }
