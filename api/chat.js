@@ -4,13 +4,15 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// CORS – اسمح لكل المصادر (أسهل شيء لفجما والويب)
+// Chat Prompt ID من لوحة OpenAI
+const PROMPT_ID = "pmpt_6948b3a2c5888193862088da7b9b617e060ff263bcdce78a";
+
 export default async function handler(req, res) {
+  // CORS – خليه مفتوح لكل المواقع (تقدر تشدده لاحقاً)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Preflight
   if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
@@ -24,117 +26,128 @@ export default async function handler(req, res) {
   try {
     const {
       messages = [],
-      feature,
+      feature,        // "chat" | "image" | "chart"
       imageBase64,
-      prompt,
       imageSize,
-      pair,
-      timeframe,
+      prompt,
     } = req.body || {};
 
-    /***********************
-     * 1) IMAGE GENERATION *
-     ***********************/
+    //
+    // 🎨 1) IMAGE GENERATION (feature === "image")
+    //
     if (feature === "image") {
-      if (!prompt) {
-        return res.status(400).json({ error: "Missing image prompt" });
-      }
+      const finalPrompt =
+        prompt ||
+        messages[messages.length - 1]?.content ||
+        "Generate a meme-style image for crypto.";
 
+      // حجم الصورة من Figma أو افتراضي
       const size = imageSize || "1024x1024";
 
-      const img = await client.images.generate({
+      const imgResponse = await client.images.generate({
         model: "gpt-image-1",
-        prompt,
+        prompt: finalPrompt,
         n: 1,
         size: size,
-        response_format: "url",
       });
 
-      const imageUrl = img.data?.[0]?.url;
+      const imageUrl = imgResponse.data?.[0]?.url;
 
       if (!imageUrl) {
-        throw new Error("No image URL from OpenAI");
+        throw new Error("No image URL returned from OpenAI");
       }
 
-      // Frontend يتوقع imageUrl أو reply
-      return res.status(200).json({ imageUrl });
+      res.status(200).json({ imageUrl });
+      return;
     }
 
-    /************************
-     * 2) CHART ANALYZER    *
-     ************************/
-    if (feature === "chart") {
-      if (!imageBase64) {
-        return res.status(400).json({ error: "Missing chart imageBase64" });
-      }
+    //
+    // 📈 2) CHART ANALYZER (feature === "chart")
+    //
+    let inputBlocks;
 
-      const userQuestion =
-        messages[messages.length - 1]?.content ||
+    if (feature === "chart") {
+      const userText =
+        messages[0]?.content ||
         "Please analyze this cryptocurrency candlestick chart.";
 
-      const systemText =
-        "You are a crypto trading educator. Analyze candlestick charts in a clear, educational way. " +
-        "Explain trend, key patterns, support/resistance, and volume/momentum. " +
-        "Do NOT give financial advice or buy/sell signals.";
+      const content = [
+        { type: "input_text", text: userText },
+      ];
 
-      const chartResponse = await client.responses.create({
-        model: "gpt-4.1-mini",
-        input: [
+      // نضيف الصورة لو موجودة (Base64 من Figma)
+      if (imageBase64) {
+        content.push({
+          type: "input_image",
+          image_url: `data:image/png;base64,${imageBase64}`,
+        });
+      }
+
+      inputBlocks = [
+        {
+          role: "user",
+          content,
+        },
+      ];
+    } else {
+      //
+      // 💬 3) NORMAL CHAT (feature === "chat" أو undefined)
+      //
+      inputBlocks = messages.map((m) => ({
+        role: m.role,
+        content: [
           {
-            role: "system",
-            content: [
-              {
-                type: "input_text",
-                text: systemText,
-              },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text:
-                  `${userQuestion}\n\n` +
-                  (pair ? `Trading pair: ${pair}. ` : "") +
-                  (timeframe ? `Timeframe: ${timeframe}.` : ""),
-              },
-              {
-                type: "input_image",
-                image_url: {
-                  // صورة قادمة من فجما base64
-                  url: `data:image/png;base64,${imageBase64}`,
-                },
-              },
-            ],
+            type: "input_text",
+            text: m.content,
           },
         ],
-      });
-
-      const analysis =
-        chartResponse.output?.[0]?.content?.[0]?.text ??
-        "I couldn't read this chart clearly. Please try another screenshot.";
-
-      return res.status(200).json({ reply: analysis });
+      }));
     }
 
-    /***********************
-     * 3) NORMAL CHAT       *
-     ***********************/
+    //
+    // 🧠 استدعاء Responses API مع الـ Chat Prompt ID
+    //
     const response = await client.responses.create({
-      model: "gpt-5.1-chat-latest",
-      // ✅ استخدام Prompt ID الخاص فيك
+      model: "gpt-4.1-mini",
       prompt: {
-        id: "pmpt_6948b3a2c5888193862088da7b9b617e060ff263bcdce78a",
+        id: PROMPT_ID,
         version: "1",
       },
-      input: messages,
+      input: inputBlocks,
     });
 
-    const reply =
-      response.output?.[0]?.content?.[0]?.text ??
-      "Sorry, I couldn’t generate a reply.";
+    // نحاول نقرأ النص من output_text (الطريقة الرسمية)
+    let reply = "";
 
+    if (response.output_text) {
+      if (Array.isArray(response.output_text)) {
+        reply = response.output_text.join("\n");
+      } else {
+        reply = response.output_text;
+      }
+    }
+
+    // احتياط: لو ما في output_text نحاول من output[0].content[]
+    if (!reply && response.output?.length) {
+      const blocks = response.output[0].content || [];
+      const textBlocks = blocks.filter(
+        (b) => b.type === "output_text" && b.text
+      );
+
+      if (textBlocks.length) {
+        reply = textBlocks
+          .map((b) =>
+            typeof b.text === "string" ? b.text : b.text.value || ""
+          )
+          .join("\n");
+      }
+    }
+
+    if (!reply) {
+      reply = "Sorry, I couldn’t generate a reply.";
+    }
+
+    // الشات + تحليل الشارت يرجعوا في نفس الحقل reply
     res.status(200).json({ reply });
   } catch (err) {
     console.error("Verse AI backend error:", err);
